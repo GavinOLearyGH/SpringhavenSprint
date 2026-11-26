@@ -20,29 +20,28 @@ footer{margin-top:10px;font-size:13px;color:#c5d3bc}#message:empty{display:none}
 @media(max-width:480px){#map{width:82px;height:65px}.stats{font-size:13px;padding:8px}.stats small{margin-right:3px}}
 </style>
 <main>
-<header><div><h1>Springhaven Sprint</h1><p>Sector test · 4 tee to the 6 approach</p></div>
+<header><div><h1>Springhaven Sprint</h1><p>Front-nine course · 4 tee to the 6 approach</p></div>
 <div class="actions" aria-label="Camera"><button id="overhead" aria-pressed="true">Overhead</button><button id="chase" aria-pressed="false">Fly-behind</button><button id="start">Start run</button></div></header>
 <div class="stats"><span><small>Time</small><b id="time">0:00.00</b></span><span><small>Best</small><b id="best">—</b></span><span><small>Checkpoints</small><b id="gates">0 / 3</b></span><span><b id="speed">0 mph</b></span></div>
 <div class="stage"><canvas id="track" aria-label="Springhaven Sprint race view"></canvas><canvas id="map" width="220" height="174" aria-hidden="true"></canvas><div id="message" role="status">Start run to drive</div></div>
 <div class="controls"><button data-control="left">◀ Left</button><button data-control="right">Right ▶</button><button data-control="brake">Brake</button></div>
 <footer>Auto-accelerate · ← / → or A / D to steer · ↓ or Space to brake · R to restart</footer>
 </main>
+<script src="./course-data.js?v=006b770"></script>
 <script>
 'use strict';
 const byId = id => document.getElementById(id);
 const canvas = byId('track');
 const ctx = canvas.getContext('2d');
 const map = byId('map').getContext('2d');
-const roadWidth = 5.3;
-const storageKey = 'springhaven-sprint-sector-v1';
-const anchors = [[5,91],[15,103],[28,103],[71,91],[120,76],[154,57],[171,36],
-  [175,17],[163,8],[143,8],[126,1],[109,-6],[93,-3],[80,2],[68,0],
-  [55,1],[47,13],[41,27],[34,34],[31,29],[39,13],[48,-4],[58,-20],[70,-33]];
+const roadWidth = 3.3;
+const storageKey = 'springhaven-sprint-sector-tipos-v1';
+const anchors = springhaven.route;
 const road = [];
 for (let i = 0; i < anchors.length - 1; i++) {
   const points = [anchors[Math.max(0,i-1)], anchors[i], anchors[i+1], anchors[Math.min(anchors.length-1,i+2)]];
-  for (let j = 0; j < 10; j++) {
-    const t = j / 10;
+  for (let j = 0; j < 3; j++) {
+    const t = j / 3;
     road.push([0,1].map(axis => {
       const [a,b,c,d] = points.map(point => point[axis]);
       return .5 * (2*b + (c-a)*t + (2*a-5*b+4*c-d)*t*t + (3*b-a-3*c+d)*t*t*t);
@@ -57,9 +56,20 @@ const pointAt = (i, offset = 0, lift = 0) => {
   const angle = Math.atan2(d-b,c-a);
   return [x-Math.sin(angle)*offset, z+Math.cos(angle)*offset, lift];
 };
-const gateNodes = [72,145,222];
+const gateNodes = [199, 331, road.length - 5];
 const gateNames = ['4 · Lower sweep','5 · Cart path bend','6 · Finish'];
-const terrain = (x,z) => 2.4*Math.sin(x/38) + 1.6*Math.cos((z-30)/19) + 1.1*Math.sin((x+z)/25);
+const grid = springhaven.grid;
+const heightBytes = Uint8Array.from(atob(grid.data), char => char.charCodeAt(0));
+const heightView = new DataView(heightBytes.buffer);
+function terrain(x,z) {
+  const col = Math.max(0,Math.min(grid.width-1.001,(x-grid.x)/grid.step));
+  const row = Math.max(0,Math.min(grid.depth-1.001,(z-grid.z)/grid.step));
+  const i = Math.floor(col), j = Math.floor(row);
+  const read = (a,b) => heightView.getInt16((b*grid.width+a)*2,true)/100;
+  const a=read(i,j), b=read(i+1,j), c=read(i,j+1), d=read(i+1,j+1);
+  const top=a+(b-a)*(col-i), bottom=c+(d-c)*(col-i);
+  return top+(bottom-top)*(row-j);
+}
 function nearest(x,z) {
   let result = { distance: Infinity, index: 0 };
   for (let i = 0; i < road.length-1; i++) {
@@ -71,22 +81,23 @@ function nearest(x,z) {
   }
   return result;
 }
-const fairways = [[91,67,51,14,-.42],[117,30,32,12,-.32],[23,4,21,10,-.75],[64,-17,31,10,-.95]];
-const greens = [[145,44,9,6,-.4],[61,14,8,6,.2],[78,-38,9,7,-.5]];
-const sand = [[137,47,4,2,-.7],[150,49,5,2,.4],[64,22,4,2,.4],[56,12,4,2,-.6],[81,-30,5,2,.7],[99,35,4,2,0]];
-let seed = 317;
-function random() {
-  seed = (1664525*seed + 1013904223) >>> 0;
-  return seed / 4294967296;
-}
-const trees = [];
-for (let i = 0; i < 600; i++) {
-  const x = -42 + random()*262, z = -74 + random()*215;
-  if (nearest(x,z).distance < 9 || [...fairways,...greens,...sand].some(([a,b,r,s,angle]) => {
-    const dx=x-a,dz=z-b;
-    return ((dx*Math.cos(angle)+dz*Math.sin(angle))/r)**2 + ((dz*Math.cos(angle)-dx*Math.sin(angle))/s)**2 < 1.35;
-  })) continue;
-  trees.push([x,z,2+random()*2.8,random()]);
+const colors = { fairway:'#83a966', surround:'#94b371', tee:'#a0be77', green:'#b0cd80', sand:'#ebd7a2', water:'#578d9b' };
+const layers = Object.entries(colors).flatMap(([kind,color]) =>
+  springhaven.holes.flatMap(hole => hole.shapes[kind].map(points => ({
+    kind,color,points,
+    minX:Math.min(...points.map(p=>p[0])),maxX:Math.max(...points.map(p=>p[0])),
+    minZ:Math.min(...points.map(p=>p[1])),maxZ:Math.max(...points.map(p=>p[1]))
+  }))));
+const hazards = layers.filter(layer => layer.kind === 'sand' || layer.kind === 'water');
+const trees = springhaven.trees.map(([x,z,height],i) => [x,z,height*.53,(i%7)/7]);
+function covers(layer,x,z) {
+  if(x<layer.minX || x>layer.maxX || z<layer.minZ || z>layer.maxZ) return false;
+  let inside=false;
+  for(let i=0,j=layer.points.length-1;i<layer.points.length;j=i++) {
+    const [a,b]=layer.points[i], [c,d]=layer.points[j];
+    if((b>z)!==(d>z) && x<(c-a)*(z-b)/(d-b)+a) inside=!inside;
+  }
+  return inside;
 }
 const saved = (() => { try { return JSON.parse(localStorage.getItem(storageKey)); } catch { return null; } })();
 let best = Number.isFinite(saved?.time) && Array.isArray(saved?.trace) ? saved : null;
@@ -170,12 +181,9 @@ function advance(dt) {
   elapsed += dt;
   const surface = nearest(cart.x,cart.z);
   const onRoad = surface.distance <= roadWidth;
-  const inSand = sand.some(([x,z,r,s,angle]) => {
-    const dx=cart.x-x,dz=cart.z-z;
-    return ((dx*Math.cos(angle)+dz*Math.sin(angle))/r)**2 + ((dz*Math.cos(angle)-dx*Math.sin(angle))/s)**2 < 1;
-  });
+  const hazard = hazards.find(layer => covers(layer,cart.x,cart.z));
   const braking = control('brake');
-  const target = braking ? 2.1 : inSand ? 3.8 : onRoad ? 23 : 8.2;
+  const target = braking ? 2.1 : hazard ? 3.8 : onRoad ? 16 : 7;
   const slope = terrain(cart.x+Math.cos(cart.yaw),cart.z+Math.sin(cart.yaw)) - terrain(cart.x,cart.z);
   const rate = cart.speed > target ? (braking ? 19 : 13) : 7.5;
   cart.speed += Math.max(-rate*dt,Math.min(rate*dt,target-cart.speed));
@@ -187,7 +195,7 @@ function advance(dt) {
   cart.x += Math.cos(cart.yaw)*cart.speed*dt;
   cart.z += Math.sin(cart.yaw)*cart.speed*dt;
   const treeHit = trees.some(([x,z]) => (x-cart.x)**2+(z-cart.z)**2 < 1.4);
-  if (treeHit || cart.x < -40 || cart.x > 218 || cart.z < -72 || cart.z > 140) {
+  if (treeHit || cart.x < 165 || cart.x > 620 || cart.z < 400 || cart.z > 890) {
     cart.x = oldX; cart.z = oldZ; cart.speed = 0;
     byId('message').textContent = 'Steer away or restart';
   } else if (byId('message').textContent) byId('message').textContent = '';
@@ -224,18 +232,23 @@ function projection() {
 }
 function poly(project, points, color) {
   const vertices = points.map(point => project(...point));
-  if (vertices.some(([, , depth]) => depth < 1)) return;
+  const visible = [];
+  for (let i=0;i<vertices.length;i++) {
+    const next=(i+1)%vertices.length;
+    const a=vertices[i], b=vertices[next];
+    if(a[2]>=1) visible.push(a);
+    if((a[2]>=1)!==(b[2]>=1)) {
+      // Project the intersection in camera space so paths stay visible under the cart.
+      const t=(1-a[2])/(b[2]-a[2]);
+      const p=points[i], q=points[next];
+      visible.push(project(p[0]+(q[0]-p[0])*t,p[1]+(q[1]-p[1])*t,
+        (p[2]??0)+((q[2]??0)-(p[2]??0))*t));
+    }
+  }
+  if(visible.length<3) return;
   ctx.beginPath();
-  vertices.forEach(([x,z],i) => i ? ctx.lineTo(x,z) : ctx.moveTo(x,z));
+  visible.forEach(([x,z],i) => i ? ctx.lineTo(x,z) : ctx.moveTo(x,z));
   ctx.closePath(); ctx.fillStyle=color; ctx.fill();
-}
-function field(project,[x,z,r,s,angle],color) {
-  const points = Array.from({length:28},(_,i) => {
-    const t=i*Math.PI/14, a=r*Math.cos(t), b=s*Math.sin(t);
-    return [x+a*Math.cos(angle)-b*Math.sin(angle),z+a*Math.sin(angle)+b*Math.cos(angle)];
-  });
-  const center = [x,z];
-  for (let i=0;i<points.length;i++) poly(project,[center,points[i],points[(i+1)%points.length]],color);
 }
 function billboard(project,x,z,top,color,radius) {
   const [sx,sy,depth] = project(x,z,top);
@@ -263,11 +276,15 @@ function drawScene() {
   if (camera === 'chase') {
     ctx.fillStyle='#668b52'; ctx.fillRect(0,height*.265,width,height);
   }
-  fairways.forEach(item => field(project,item,'#83a966'));
-  greens.forEach(item => field(project,item,'#a7c778'));
-  sand.forEach(item => field(project,item,'#ebd7a2'));
+  for(const layer of layers) {
+    if(cart.x < layer.minX-220 || cart.x > layer.maxX+220 || cart.z < layer.minZ-220 || cart.z > layer.maxZ+220) continue;
+    poly(project,layer.points,layer.color);
+  }
   for (const [half,color] of [[roadWidth+.65,'#445542'],[roadWidth,'#a49f85']]) {
-    for(let i=0;i<road.length-1;i++) poly(project,[pointAt(i,-half),pointAt(i,half),pointAt(i+1,half),pointAt(i+1,-half)],color);
+    for(let i=0;i<road.length-1;i++) {
+      if(Math.hypot(road[i][0]-cart.x,road[i][1]-cart.z)>240) continue;
+      poly(project,[pointAt(i,-half),pointAt(i,half),pointAt(i+1,half),pointAt(i+1,-half)],color);
+    }
   }
   for(let i=4;i<road.length-2;i+=9) {
     poly(project,[pointAt(i,-.75,.03),pointAt(i+2,0,.03),pointAt(i,.75,.03),pointAt(i+1,0,.03)],'#f6e8b1');
@@ -277,8 +294,8 @@ function drawScene() {
     poly(project,[pointAt(node,-roadWidth),pointAt(node,roadWidth),pointAt(node+1,roadWidth),pointAt(node+1,-roadWidth)],color);
   });
   const ghost = state === 'racing' ? best?.trace[Math.floor(elapsed*10)] : null;
-  const sprites = trees.map(([x,z,size,shade])=>({x,z,size,shade}));
-  greens.forEach(([x,z],i) => sprites.push({x,z,flag:i+4}));
+  const sprites = trees.filter(([x,z])=>Math.hypot(x-cart.x,z-cart.z)<220).map(([x,z,size,shade])=>({x,z,size,shade}));
+  springhaven.holes.forEach(({pin:[x,z],number}) => sprites.push({x,z,flag:number}));
   sprites.push({x:cart.x,z:cart.z,yaw:cart.yaw});
   if (ghost) sprites.push({x:ghost[0],z:ghost[1],yaw:ghost[2],ghost:true});
   sprites.sort((a,b) => camera === 'chase' ? project(b.x,b.z)[2]-project(a.x,a.z)[2] : a.z-b.z);
@@ -299,8 +316,13 @@ function drawScene() {
   }
 }
 function drawMap() {
-  const loc=(x,z)=>[11+x*1.1,50+z*1.1];
+  const loc=(x,z)=>[55+x*.18,9+z*.17];
   map.clearRect(0,0,220,174);
+  for(const layer of layers) {
+    map.beginPath();
+    layer.points.forEach(([x,z],i)=>i?map.lineTo(...loc(x,z)):map.moveTo(...loc(x,z)));
+    map.closePath(); map.fillStyle=layer.color; map.fill();
+  }
   map.strokeStyle='#d4ccb0';map.lineWidth=3;map.beginPath();
   road.forEach(([x,z],i)=>i?map.lineTo(...loc(x,z)):map.moveTo(...loc(x,z)));
   map.stroke();
@@ -322,7 +344,7 @@ function frame(now) {
   drawScene(); drawMap();
   byId('time').textContent=clock(elapsed);
   byId('best').textContent=best ? clock(best.time) : '—';
-  byId('speed').textContent=`${Math.round(cart.speed*1.55)} mph`;
+  byId('speed').textContent=`${Math.round(cart.speed*2.237)} mph`;
   byId('gates').textContent=`${gate} / 3`;
   byId('gates').title=gateNames[gate] ?? 'Complete';
   requestAnimationFrame(frame);
